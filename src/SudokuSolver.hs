@@ -4,6 +4,7 @@ import qualified Data.Vector as V
 import Data.Vector (Vector, (!), (//))
 import Data.String (unlines)
 import Data.List
+import Debug.Trace
 
 type Cell = Maybe Int
 
@@ -54,11 +55,31 @@ chunk n xs = foldr fn [] $ zip [1..] xs where
                 (xs:xss) -> (x:xs):xss
                 _        -> error "Should never happen"
 
-isValid :: Board -> Bool
-isValid = undefined
+mapWithIndices fn board = (V.map . V.map) fn (boardWithIndices board)
 
-isCellValid :: Cell -> Board -> Board
-isCellValid = undefined
+boardWithIndices :: Board -> Vector (Vector (Int, Int, Cell))
+boardWithIndices board =
+    let indices = V.fromList [0..9]
+    in V.map (\(r, row) ->
+        V.map (\(c, cell) ->
+            (r,c,cell)) $ V.zip indices row) $ V.zip indices board
+
+isValid :: Board -> Bool
+isValid board = V.and $ V.map V.and $ mapWithIndices (isCellValid board) board
+
+isCellValid :: Board -> (Int, Int, Cell) -> Bool
+isCellValid b (r, c, cell) =
+    let row = getRow r b
+        col = getCol c b
+    in case cell of
+        Nothing -> True
+        Just x  ->
+            let toCheck = V.concat [row, col]
+                filtered = V.filter (== (Just x)) toCheck
+            in V.length filtered == 2
 
 getRow :: Int -> Board -> Vector Cell
 getRow r board = board ! r
+
+getCol :: Int -> Board -> Vector Cell
+getCol c board = V.map (! c) board
