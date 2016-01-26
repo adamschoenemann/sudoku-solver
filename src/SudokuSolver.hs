@@ -5,6 +5,7 @@ import Data.Vector (Vector, (!), (//))
 import Data.String (unlines)
 import Data.List
 import Debug.Trace
+import Control.Monad (join)
 
 type Cell = Maybe Int
 
@@ -71,15 +72,26 @@ isCellValid :: Board -> (Int, Int, Cell) -> Bool
 isCellValid b (r, c, cell) =
     let row = getRow r b
         col = getCol c b
+        block = getBlock r c b
+        flatBlock = join block
     in case cell of
         Nothing -> True
         Just x  ->
-            let toCheck = V.concat [row, col]
+            let toCheck = V.concat [row, col, flatBlock]
                 filtered = V.filter (== (Just x)) toCheck
-            in V.length filtered == 2
+            in V.length filtered == 3
 
 getRow :: Int -> Board -> Vector Cell
 getRow r board = board ! r
 
 getCol :: Int -> Board -> Vector Cell
 getCol c board = V.map (! c) board
+
+-- expands to a 3x3 board from row -> col coords
+getBlock :: Int -> Int -> Board -> Board
+getBlock r c board =
+    let blockRow = (r `div` 3) * 3
+        blockCol = (c `div` 3) * 3
+        rows = V.slice blockRow 3 board
+        cols = V.map (V.slice blockCol 3) rows
+    in cols
