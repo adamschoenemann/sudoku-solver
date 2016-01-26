@@ -5,7 +5,9 @@ import Data.Vector (Vector, (!), (//))
 import Data.String (unlines)
 import Data.List
 import Debug.Trace
+import Data.Maybe
 import Control.Monad (join)
+import Data.Ord (comparing)
 
 type Cell = Maybe Int
 
@@ -60,13 +62,27 @@ mapWithIndices fn board = (V.map . V.map) fn (boardWithIndices board)
 
 boardWithIndices :: Board -> Vector (Vector (Int, Int, Cell))
 boardWithIndices board =
-    let indices = V.fromList [0..9]
-    in V.map (\(r, row) ->
-        V.map (\(c, cell) ->
-            (r,c,cell)) $ V.zip indices row) $ V.zip indices board
+    V.imap (\r row ->
+        V.imap (\c cell ->
+            (r,c,cell)) row) $ board
 
 isValid :: Board -> Bool
 isValid board = V.and $ V.map V.and $ mapWithIndices (isCellValid board) board
+
+possibleCellValues' b (r, c, cell) =
+    let vals = possibleCellValues b (r, c, cell)
+        in (r, c, vals)
+
+possibleCellValues :: Board -> (Int, Int, Cell) -> [Int]
+possibleCellValues b (r, c, cell) =
+    case cell of
+        Just num  -> []
+        Nothing ->
+            let row = getRow r b
+                col = getCol c b
+                flatBlock = join $ getBlock r c b
+                inValidNums = nub . map fromJust . filter isJust . V.toList . V.concat $ [row, col, flatBlock]
+            in [1..9] \\ inValidNums -- \\ == difference
 
 isCellValid :: Board -> (Int, Int, Cell) -> Bool
 isCellValid b (r, c, cell) =
@@ -95,3 +111,20 @@ getBlock r c board =
         rows = V.slice blockRow 3 board
         cols = V.map (V.slice blockCol 3) rows
     in cols
+
+{- make a step in solving the board
+   1. map board positions to possible values
+   2. filter positions with no possible values
+   3. sort possible values according to length of possible values (asc)
+   4. insert first possible value in board
+   5. do solverStep on new board
+   6. if path failed continue with next possible value in board
+-}
+-- solverStep :: Board -> Board
+solverStep board =
+    let space = join $ mapWithIndices (possibleCellValues' board) board
+        cleanedSpace = V.toList $ V.filter (\x -> length (thd x) > 0) space
+        sortedSpace  = sortBy (comparing (length . thd)) $ cleanedSpace
+    in sortedSpace
+
+thd (a,b,c) = c
