@@ -1,3 +1,8 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module SudokuSolver where
 
 import qualified Data.Vector as V
@@ -8,10 +13,10 @@ import Debug.Trace
 import Data.Maybe
 import Control.Monad (join)
 import Data.Ord (comparing)
-
-type Cell = Maybe Int
-
-type Board  = Vector (Vector Cell)
+import Control.Applicative
+import SudokuTypes
+import SudokuParser
+import qualified Data.Set as S
 
 
 board :: Board
@@ -58,6 +63,7 @@ chunk n xs = foldr fn [] $ zip [1..] xs where
                 (xs:xss) -> (x:xs):xss
                 _        -> error "Should never happen"
 
+-- mapWithIndices :: (a -> b) -> Vector (Vector a) -> Vector (Vector b)
 mapWithIndices fn board = (V.map . V.map) fn (boardWithIndices board)
 
 boardWithIndices :: Board -> Vector (Vector (Int, Int, Cell))
@@ -69,6 +75,7 @@ boardWithIndices board =
 isValid :: Board -> Bool
 isValid board = V.and $ V.map V.and $ mapWithIndices (isCellValid board) board
 
+-- returns possible cell values along with coordinates
 possibleCellValues' b (r, c, cell) =
     let vals = possibleCellValues b (r, c, cell)
         in (r, c, vals)
@@ -112,19 +119,142 @@ getBlock r c board =
         cols = V.map (V.slice blockCol 3) rows
     in cols
 
+getEmptyCells :: Board -> Vector (Int,Int)
+getEmptyCells =
+    V.map (\(r,c,x) -> (r,c)) . V.filter (isNothing . thd) . join . boardWithIndices
+
+isSolved :: Board -> Bool
+isSolved board =
+    let unmarked = getEmptyCells board
+    in  V.length unmarked == 0
+
+insertCell :: Int -> Int -> Cell -> Board -> Board
+insertCell r c cell board =
+    let row = board ! r
+        x = row ! c
+    in case x of
+        Just _ -> error "Dont insert where is already a number"
+        Nothing ->
+            let row' = row // [(c, cell)]
+                board' = board // [(r, row')]
+            in board'
+
+class (Show s, Eq s, Ord s, Ord a) => Searchable s a where
+    actions :: s -> S.Set a
+    transition :: a -> s -> s
+
+    search :: s -> (s -> Bool) -> Maybe [a]
+    search state goalTest = trace (show state) $
+        if goalTest state
+        then Just []
+        else
+            let acts = (actions state) :: S.Set a
+                trans a = (:) <$> Just a <*> search (transition a state) goalTest
+                substates = S.toAscList $ S.map trans acts
+            in if S.null acts
+                then Nothing
+                else join . find isJust $ substates
+
+
+newtype SearchBoard = SearchBoard {unBoard :: Board} deriving Eq
+
+instance Show SearchBoard where
+    show (SearchBoard b) = unlines $ showBoard b
+
+utility (SearchBoard b) =
+    let possibilities =
+            V.sum . V.map length . join
+            . mapWithIndices (thd . possibleCellValues' b) $ b
+        empties = V.length $ getEmptyCells b
+    -- in (toRational empties) / (toRational possibilities)
+    in (toRational possibilities) / (toRational empties)
+
+instance Ord SearchBoard where
+    compare x y = utility x `compare` utility y
+        -- compare (utility x) (utility y)
+
+instance Searchable SearchBoard (Int, Int, Int) where
+    actions (SearchBoard b) =
+        let getActions (r, c, cell) =
+                let pos = possibleCellValues b (r,c,cell)
+                in  V.fromList $ map (\p -> (r,c,p)) pos
+        in S.fromList . V.toList . join . join . mapWithIndices getActions $ b
+
+    transition (r, c, val) s =
+        let b' = insertCell r c (Just val) (unBoard s)
+        in if isValid b'
+            then SearchBoard b'
+            else error "Should never happen!"
+
+
+insertCells :: [(Int,Int,Int)] -> Board -> Board
+insertCells [] b = b
+insertCells ((r,c,val):xs) b =
+    let b' = insertCell r c (Just val) b
+    in  trace (unlines $ ((show (r,c,val)) : showBoard b')) $ insertCells xs b'
+
 {- make a step in solving the board
+   0. check if board is solved
    1. map board positions to possible values
    2. filter positions with no possible values
    3. sort possible values according to length of possible values (asc)
-   4. insert first possible value in board
-   5. do solverStep on new board
-   6. if path failed continue with next possible value in board
+       (note: this is very important for performance!)
+   4. if there are no possible values, we've failed
+   5. for each square
+      1. for each possible value
+          1. insert value in board
+          2. solve resulting board
+
+    We use join to concatenate the Maybe's (find returns a maybe)
+    We exploit the lazyness of find, in that it stops the algorithm
+    as soon as it hits a (Just board).
+    If solve returns a (Just board) it means we've solved the sudoku!
 -}
--- solverStep :: Board -> Board
-solverStep board =
-    let space = join $ mapWithIndices (possibleCellValues' board) board
-        cleanedSpace = V.toList $ V.filter (\x -> length (thd x) > 0) space
-        sortedSpace  = sortBy (comparing (length . thd)) $ cleanedSpace
-    in sortedSpace
+-- solve :: Board -> Maybe Board
+solve board =
+    let result :: Maybe [(Int,Int,Int)]
+        test (SearchBoard b) = isValid b && (V.null . getEmptyCells $ b)
+        result = search (SearchBoard board) test
+    in result
+
+solveAndShow board =
+    let result = solve board
+    in case result of
+        Nothing   -> Nothing
+        Just acts -> Just $ insertCells acts board
+
+
+
+
+-- solve board
+--     | isSolved board = trace "Solved!" $ Just board
+--     | otherwise =
+--         let space = sortedSpace board
+--         in  if length (sortedSpace board) == 0
+--             then trace "Exhausted!" Nothing
+--             else
+--                 let nexts = concatMap solverStep space
+--                     sortedNext = reverse $ sortBy (comparing sortedSpace) nexts
+--                 in  trace ("steps: " ++ (show $ length sortedNext)) $ join $ find isJust $ map solve sortedNext
+--                 where
+--                     solverStep (r,c, ps) =
+--                         map (insertPossibility r c) ps
+--                     insertPossibility r c p =
+--                         insertCell r c (Just p) board
+
+
+-- sortedSpace :: Board -> [(Int,Int,[Int])]
+-- sortedSpace b =
+--     let space = join $ mapWithIndices (possibleCellValues' b) b
+--         cleanedSpace = V.toList $ V.filter (\x -> length (thd x) > 0) space
+--     in  sortBy (comparing (length . thd)) $ cleanedSpace
 
 thd (a,b,c) = c
+
+-- solveFile file = do
+--     contents <- readFile file
+--     let sudokus = parseSudokus contents
+--     case sudokus of
+--         Left err -> putStrLn (show err)
+--         Right sudokus' ->
+--             maybe (putStrLn "unsolved") printBoard (solve $ sudokus' !! 1)
