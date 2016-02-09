@@ -20,8 +20,8 @@ import SudokuParser
 import qualified Data.SortedList as S
 
 
-board :: Board
-board =
+board1 :: Board
+board1 =
     let board' =
             [ [9, 1, 7, 3, 0, 0, 4, 0, 0]
             , [0, 0, 0, 0, 4, 0, 7, 1, 0]
@@ -85,6 +85,24 @@ board4 =
         toCell x = if x == 0 then Nothing else Just x
     in  V.fromList $ map (V.fromList . map toCell) board'
 
+
+
+board5 :: Board
+board5 =
+    let board' =
+            [ [5,3,0,0,7,0,0,0,0]
+            , [6,0,0,1,9,5,0,0,0]
+            , [0,9,8,0,0,0,0,6,0]
+            , [8,0,0,0,6,0,0,0,3]
+            , [4,0,0,8,0,3,0,0,1]
+            , [7,0,0,0,2,0,0,0,6]
+            , [0,6,0,0,0,0,2,8,0]
+            , [0,0,0,4,1,9,0,0,5]
+            , [0,0,0,0,8,0,0,7,9]
+            ]
+        toCell x = if x == 0 then Nothing else Just x
+    in  V.fromList $ map (V.fromList . map toCell) board'
+
 showCell :: Cell -> String
 showCell = maybe " " show
 
@@ -139,7 +157,7 @@ possibleCellValues b (r, c, cell) =
                 col = getCol c b
                 flatBlock = join $ getBlock r c b
                 inValidNums = nub . map fromJust . filter isJust . V.toList . V.concat $ [row, col, flatBlock]
-            in [1..9] \\ inValidNums -- \\ == difference
+            in S.fromSortedList $ S.toSortedList $ [1..9] \\ inValidNums -- \\ == difference
 
 isCellValid :: Board -> (Int, Int, Cell) -> Bool
 isCellValid b (r, c, cell) =
@@ -296,23 +314,6 @@ insertCells ((r,c,val):xs) b =
     let b' = insertCell r c (Just val) b
     in  trace (unlines $ ((show (r,c,val)) : showBoard b')) $ insertCells xs b'
 
-{- make a step in solving the board
-   0. check if board is solved
-   1. map board positions to possible values
-   2. filter positions with no possible values
-   3. sort possible values according to length of possible values (asc)
-       (note: this is very important for performance!)
-   4. if there are no possible values, we've failed
-   5. for each square
-      1. for each possible value
-          1. insert value in board
-          2. solve resulting board
-
-    We use join to concatenate the Maybe's (find returns a maybe)
-    We exploit the lazyness of find, in that it stops the algorithm
-    as soon as it hits a (Just board).
-    If solve returns a (Just board) it means we've solved the sudoku!
--}
 -- solve :: Board -> Maybe Board
 solve board =
     let test = isComplete . unBoard
@@ -325,31 +326,30 @@ solve board =
 --         Nothing   -> Nothing
 --         Just acts -> Just $ insertCells acts board
 
+getDeadEnds :: Board -> Vector (Int,Int)
+getDeadEnds b =
+    join . join $ mapWithIndices fn b
+        where fn (r,c, Nothing) = if (length $ possibleCellValues b (r,c,Nothing)) == 0 then V.singleton (r,c) else V.empty
+              fn (r,c, Just _)  = V.empty
 
+hasSolution :: Board -> Bool
+hasSolution b = (V.length $ getDeadEnds b) == 0
 
+-- loops!? between 27-28-29
+backtrack :: Int -> Board -> Maybe Board
+backtrack n board =
+    let empties = getEmptyCells board
+        insert (n',(r, c)) =
+            let pos = possibleCellValues board (r, c, Nothing)
+                inserter (n'', v) = trace (show ((n, (show n') ++ " / " ++ (show $ V.length empties), n''), r,c,v, filter (> v) pos)) $ backtrack (n+1) $ insertCell r c (Just v) board
+            in  join $ find isJust $ map inserter $ zip [0..] pos
 
--- solve board
---     | isSolved board = trace "Solved!" $ Just board
---     | otherwise =
---         let space = sortedSpace board
---         in  if length (sortedSpace board) == 0
---             then trace "Exhausted!" Nothing
---             else
---                 let nexts = concatMap solverStep space
---                     sortedNext = reverse $ sortBy (comparing sortedSpace) nexts
---                 in  trace ("steps: " ++ (show $ length sortedNext)) $ join $ find isJust $ map solve sortedNext
---                 where
---                     solverStep (r,c, ps) =
---                         map (insertPossibility r c) ps
---                     insertPossibility r c p =
---                         insertCell r c (Just p) board
+    in if (isComplete board)
+        then Just board
+        else if (hasSolution board == False || V.length empties == 0)
+            then trace "Backtrack" Nothing
+            else join $ V.find isJust $ V.map insert $ V.zip (V.fromList [0.. V.length empties]) empties
 
-
--- sortedSpace :: Board -> [(Int,Int,[Int])]
--- sortedSpace b =
---     let space = join $ mapWithIndices (possibleCellValues' b) b
---         cleanedSpace = V.toList $ V.filter (\x -> length (thd x) > 0) space
---     in  sortBy (comparing (length . thd)) $ cleanedSpace
 
 thd (a,b,c) = c
 
@@ -381,3 +381,7 @@ slLength = length . S.fromSortedList
 
 slEmpty :: (Ord a) => S.SortedList a
 slEmpty = S.toSortedList []
+
+main = case backtrack 0 board1 of
+    Nothing -> putStrLn ""
+    Just b   -> putStrLn "" --printBoard board
