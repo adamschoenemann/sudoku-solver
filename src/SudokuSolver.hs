@@ -281,14 +281,8 @@ utility (SearchBoard b) =
 
 instance Ord SearchBoard where
     compare x y = utility x `compare` utility y
-        -- compare (utility x) (utility y)
 
 instance Searchable SearchBoard (Int, Int, Int) where
-
-    -- prune states =
-    --     S.filter f states where
-    --         f s = length $ getP
-
     actions (SearchBoard b) =
         let getActions (r, c, cell) =
                 let pos = possibleCellValues b (r,c,cell)
@@ -314,42 +308,36 @@ insertCells ((r,c,val):xs) b =
     let b' = insertCell r c (Just val) b
     in  trace (unlines $ ((show (r,c,val)) : showBoard b')) $ insertCells xs b'
 
--- solve :: Board -> Maybe Board
-solve board =
-    let test = isComplete . unBoard
-        result = search' (SearchBoard board) slEmpty test
-    in result
 
--- solveAndShow board =
---     let result = solve board
---     in case result of
---         Nothing   -> Nothing
---         Just acts -> Just $ insertCells acts board
 
 getDeadEnds :: Board -> Vector (Int,Int)
 getDeadEnds b =
     join . join $ mapWithIndices fn b
-        where fn (r,c, Nothing) = if (length $ possibleCellValues b (r,c,Nothing)) == 0 then V.singleton (r,c) else V.empty
-              fn (r,c, Just _)  = V.empty
+        where
+            fn (r,c, Nothing) =
+                if (length $ possibleCellValues b (r,c,Nothing)) == 0
+                then V.singleton (r,c) else V.empty
+            fn (r,c, Just _)  = V.empty
 
 hasSolution :: Board -> Bool
 hasSolution b = (V.length $ getDeadEnds b) == 0
 
--- loops!? between 27-28-29
-backtrack :: Int -> Board -> Maybe Board
-backtrack n board =
-    let empties = getEmptyCells board
-        insert (n',(r, c)) =
-            let pos = possibleCellValues board (r, c, Nothing)
-                inserter (n'', v) = trace (show ((n, (show n') ++ " / " ++ (show $ V.length empties), n''), r,c,v, filter (> v) pos)) $ backtrack (n+1) $ insertCell r c (Just v) board
-            in  join $ find isJust $ map inserter $ zip [0..] pos
 
-    in if (isComplete board)
-        then Just board
-        else if (hasSolution board == False || V.length empties == 0)
-            then trace "Backtrack" Nothing
-            else join $ V.find isJust $ V.map insert $ V.zip (V.fromList [0.. V.length empties]) empties
-
+backtrack :: Board -> Maybe Board
+backtrack board
+    | isComplete board = Just board
+    | hasSolution board = forward board empties
+    | otherwise = Nothing
+    where
+        empties  = V.toList $ getEmptyCells board
+        tryVal _ [] b = Nothing
+        tryVal (r,c) (v:vals) b =
+            case backtrack2 (insertCell r c (Just v) b) of
+                Nothing -> tryVal (r,c) vals b
+                Just res -> Just res
+        forward b ((r,c):positions) =
+            let vals = possibleCellValues b (r,c, Nothing)
+            in  tryVal (r,c) vals b
 
 thd (a,b,c) = c
 
@@ -360,13 +348,6 @@ solveFile file = do
         Left err -> putStrLn (show err)
         Right sudokus' ->
             maybe (putStrLn "unsolved") (printBoard . unBoard) (solve $ sudokus' !! 0)
-
--- test set
-
--- newtype SortedListTest = SortedListTest { unSortedListTest :: (String, Int) } deriving (Eq, Show)
-
--- instance Ord SortedListTest where
---     compare (SortedListTest (_,x)) (SortedListTest (_,y)) = compare x y
 
 slDelete :: (Ord a) => a -> S.SortedList a -> S.SortedList a
 slDelete x xs = S.filter (/= x) xs
@@ -382,6 +363,8 @@ slLength = length . S.fromSortedList
 slEmpty :: (Ord a) => S.SortedList a
 slEmpty = S.toSortedList []
 
-main = case backtrack 0 board1 of
+solve board = backtrack board
+
+main = case backtrack board1 of
     Nothing -> putStrLn ""
     Just b   -> putStrLn "" --printBoard board
