@@ -17,7 +17,6 @@ import Data.Ord (comparing)
 import Control.Applicative
 import SudokuTypes
 import SudokuParser
-import qualified Data.SortedList as S
 
 
 board1 :: Board
@@ -157,7 +156,7 @@ possibleCellValues b (r, c, cell) =
                 col = getCol c b
                 flatBlock = join $ getBlock r c b
                 inValidNums = nub . map fromJust . filter isJust . V.toList . V.concat $ [row, col, flatBlock]
-            in S.fromSortedList $ S.toSortedList $ [1..9] \\ inValidNums -- \\ == difference
+            in [1..9] \\ inValidNums -- \\ == difference
 
 isCellValid :: Board -> (Int, Int, Cell) -> Bool
 isCellValid b (r, c, cell) =
@@ -207,98 +206,6 @@ insertCell r c cell board =
                 board' = board // [(r, row')]
             in board'
 
-select :: Ord s => S.SortedList s -> Maybe (s, S.SortedList s)
-select states =
-    S.uncons states
-        -- else
-        --     let h = head $ S.fromSortedList states
-        --     in Just (h, states)
-
-
-class (Show s, Eq s, Ord s, Ord a) => Searchable s a | s -> a where
-    actions :: s -> S.SortedList a
-    transition :: a -> s -> s
-    -- prune :: S.SortedList s -> S.SortedList s
-
-    search' :: s -> S.SortedList s -> (s -> Bool) -> Maybe s
-    search' state frontier goalTest
-        | goalTest state = Just state
-        | otherwise =
-            let acts = (actions state) :: S.SortedList a
-                substates = S.map (flip transition $ state) acts
-                next = select $ (slUnion frontier substates)
-            in case next of
-                Nothing -> Nothing
-                Just (state', frontier') ->
-                    trace (show . slLength $ frontier')
-                        (search' state' frontier' goalTest)
-
-    -- search :: s -> S.SortedList s -> (s -> Bool) -> Maybe [a]
-    -- search state frontier goalTest
-    --     | goalTest state = Just []
-    --     | otherwise =
-    --         let acts = (actions state) :: S.SortedList a
-    --             substates = S.map (flip transition $ state) acts
-    --             next = select $ (slUnion frontier substates)
-    --         in case next of
-    --             Nothing -> Nothing
-    --             Just (state', frontier') -> (search state' frontier' goalTest)
-
-    -- search :: s -> (s -> Bool) -> Maybe [a]
-    -- search state goalTest =
-    --     if goalTest state
-    --     then Just []
-    --     else
-    --         let acts = (actions state) :: S.SortedList a
-    --             trans a = (:) <$> Just a <*> search (transition a state) goalTest
-    --             substates = S.toDescList $ S.map trans acts
-    --         in if S.null acts
-    --             then Nothing
-    --             else join . find isJust $ substates
-
-
-newtype SearchBoard = SearchBoard {unBoard :: Board}
-
-instance Eq SearchBoard where
-    (SearchBoard x) == (SearchBoard y) = x == y
-
-instance Show SearchBoard where
-    show (SearchBoard b) = unlines $ showBoard b
-
-utility (SearchBoard b) =
-    let possibilities =
-            V.sum . V.map length . join
-            . mapWithIndices (thd . possibleCellValues' b) $ b
-        empties = V.length $ getEmptyCells b
-    in empties-- ((toRational empties) / 9 * 9) / (toRational possibilities)
-    -- in if empties == 0
-    --    then 10000
-    --    else if possibilities == 0
-    --    then -10000
-    --    else if possibilities < empties
-    --    then -10000
-    --    else (toRational possibilities) / (toRational empties)
-
-instance Ord SearchBoard where
-    compare x y = utility x `compare` utility y
-
-instance Searchable SearchBoard (Int, Int, Int) where
-    actions (SearchBoard b) =
-        let getActions (r, c, cell) =
-                let pos = possibleCellValues b (r,c,cell)
-                in  V.fromList $ map (\p -> (r,c,p)) pos
-            actions = join . join $ mapWithIndices getActions b
-        in if
-            V.length actions < (V.length $ getEmptyCells b)
-            then slEmpty
-            else S.toSortedList . V.toList $ actions
-
-    transition (r, c, val) s =
-        let b' = insertCell r c (Just val) (unBoard s)
-        in if isValid b'
-            then SearchBoard b'
-            else error "Should never happen!"
-
 isComplete :: Board -> Bool
 isComplete = V.null . getEmptyCells
 
@@ -332,7 +239,7 @@ backtrack board
         empties  = V.toList $ getEmptyCells board
         tryVal _ [] b = Nothing
         tryVal (r,c) (v:vals) b =
-            case backtrack2 (insertCell r c (Just v) b) of
+            case backtrack (insertCell r c (Just v) b) of
                 Nothing -> tryVal (r,c) vals b
                 Just res -> Just res
         forward b ((r,c):positions) =
@@ -347,24 +254,12 @@ solveFile file = do
     case sudokus of
         Left err -> putStrLn (show err)
         Right sudokus' ->
-            maybe (putStrLn "unsolved") (printBoard . unBoard) (solve $ sudokus' !! 0)
-
-slDelete :: (Ord a) => a -> S.SortedList a -> S.SortedList a
-slDelete x xs = S.filter (/= x) xs
-
-slUnion :: (Ord a) => S.SortedList a -> S.SortedList a -> S.SortedList a
-slUnion xs ys = union (S.fromSortedList xs) ys where
-    union (x:xs) l = union xs (x `S.insert` l)
-    union [] l = l
-
-slLength :: (Ord a) => S.SortedList a -> Int
-slLength = length . S.fromSortedList
-
-slEmpty :: (Ord a) => S.SortedList a
-slEmpty = S.toSortedList []
+            let solve (i,s) = do
+                    putStrLn (show i)
+                    maybe (putStrLn "unsolved") (printBoard)
+                        (backtrack s)
+            in mapM_ solve $ zip [0..] sudokus'
 
 solve board = backtrack board
 
-main = case backtrack board1 of
-    Nothing -> putStrLn ""
-    Just b   -> putStrLn "" --printBoard board
+main = solveFile "sudoku.txt"
