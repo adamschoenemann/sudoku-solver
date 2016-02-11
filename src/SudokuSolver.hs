@@ -262,4 +262,4 @@ solveFile file = do
 
 solve board = backtrack board
 
-main = solveFile "sudoku.txt"
+main = solveFile
