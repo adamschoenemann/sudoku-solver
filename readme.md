@@ -6,6 +6,8 @@ It produces a binary, called solver, that takes a single argument which is
 a path to a file containing sudokus. The file `sudoku.txt` in this repo
 is an example of such a file.
 
+![Gif](https://media.giphy.com/media/3o6gbfFMyly80JVkUo/giphy.gif)
+
 ## Usage
 1. clone
 2. `cabal install`
